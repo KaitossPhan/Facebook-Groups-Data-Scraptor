@@ -1,0 +1,20 @@
+{
+    "name": "facebook-group-scraper",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "Scrape Facebook groups: metadata, posts, comments, members. Built for GS3/VNG internal use.",
+    "engines": {
+        "node": ">=18"
+    },
+    "scripts": {
+        "start": "node src/main.js",
+        "test": "echo \"No tests yet\" && exit 0"
+    },
+    "dependencies": {
+        "apify": "^3.2.6",
+        "crawlee": "^3.11.5",
+        "playwright": "^1.47.0"
+    },
+    "author": "GS3 / Kiệt",
+    "license": "UNLICENSED"
+}

@@ -1,0 +1,132 @@
+{
+    "title": "Facebook Group Scraper Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "groupUrls": {
+            "title": "Facebook Group URLs",
+            "type": "array",
+            "description": "List of Facebook group URLs to scrape. Format: https://www.facebook.com/groups/{id-or-name}/",
+            "editor": "stringList",
+            "prefill": [
+                "https://www.facebook.com/groups/example/"
+            ]
+        },
+        "scrapeMetadata": {
+            "title": "Scrape group metadata",
+            "type": "boolean",
+            "description": "Get group name, description, member count, privacy, rules, etc.",
+            "default": true
+        },
+        "scrapePosts": {
+            "title": "Scrape posts",
+            "type": "boolean",
+            "description": "Get posts in the group feed.",
+            "default": true
+        },
+        "maxPostsPerGroup": {
+            "title": "Max posts per group",
+            "type": "integer",
+            "description": "How many posts to collect per group (0 = unlimited, not recommended).",
+            "default": 50,
+            "minimum": 0,
+            "maximum": 1000
+        },
+        "scrapeComments": {
+            "title": "Scrape comments",
+            "type": "boolean",
+            "description": "Also get comments under each post (slower).",
+            "default": false
+        },
+        "maxCommentsPerPost": {
+            "title": "Max comments per post",
+            "type": "integer",
+            "description": "How many comments to collect per post.",
+            "default": 20,
+            "minimum": 0,
+            "maximum": 500
+        },
+        "scrapeMembers": {
+            "title": "Scrape member list",
+            "type": "boolean",
+            "description": "Get member list. ONLY works if the logged-in account is a member of the group.",
+            "default": false
+        },
+        "maxMembersPerGroup": {
+            "title": "Max members per group",
+            "type": "integer",
+            "description": "How many members to collect per group.",
+            "default": 100,
+            "minimum": 0,
+            "maximum": 5000
+        },
+        "fbCookies": {
+            "title": "Facebook cookies (JSON)",
+            "type": "string",
+            "description": "Cookies exported from a logged-in Facebook session. Required for private groups, members list, and to reduce rate limits on public groups. Use a burner account, NOT your main account. Format: JSON array exported from 'EditThisCookie' or 'Cookie-Editor' extension.",
+            "editor": "json",
+            "isSecret": true
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Proxy settings. RESIDENTIAL recommended for Facebook.",
+            "editor": "proxy",
+            "prefill": {
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"]
+            },
+            "default": {
+                "useApifyProxy": true,
+                "apifyProxyGroups": ["RESIDENTIAL"]
+            }
+        },
+        "headless": {
+            "title": "Run in headless mode",
+            "type": "boolean",
+            "description": "Turn off to see the browser while developing locally.",
+            "default": true
+        },
+        "fbCookiesList": {
+            "title": "Additional Facebook cookie sets (for rotation)",
+            "type": "array",
+            "description": "Extra cookie sets for multi-account rotation. When the active account is checkpointed, the scraper switches to the next set automatically. Each item is a JSON string (same format as fbCookies). The primary fbCookies is always slot 0.",
+            "editor": "stringList"
+        },
+        "webhookUrl": {
+            "title": "Webhook URL",
+            "type": "string",
+            "description": "Optional URL to POST a JSON notification to after each group finishes scraping. Payload includes status, post count, flagged count (if moderation enabled), and error (if any). Use to trigger GS3 Dashboard sync or Slack alerts.",
+            "editor": "textfield"
+        },
+        "diffMode": {
+            "title": "Diff mode — only new posts",
+            "type": "boolean",
+            "description": "When enabled, only returns posts newer than the last successful scrape for each group. The scraper stores the most recent post timestamp per group in Apify Key-Value Store between runs. Best used with scheduled Actor runs.",
+            "default": false
+        },
+        "maxCheckpointRetries": {
+            "title": "Max checkpoint retries",
+            "type": "integer",
+            "description": "How many times to retry when Facebook shows a checkpoint or login wall. Each retry waits with exponential backoff (30 s → 60 s → 120 s) and rotates to the next cookie set if available.",
+            "default": 3,
+            "minimum": 0,
+            "maximum": 10
+        },
+        "minimaxApiKey": {
+            "title": "MiniMax API Key (for AI moderation)",
+            "type": "string",
+            "description": "Optional. If provided, each scraped post is sent to MiniMax AI to check for policy violations (spam, hate speech, adult content, violence, misinformation). Results appear as a `moderation` object on each post.",
+            "editor": "textfield",
+            "isSecret": true
+        },
+        "minimaxModel": {
+            "title": "MiniMax model",
+            "type": "string",
+            "description": "MiniMax chat model to use for content moderation.",
+            "editor": "textfield",
+            "default": "abab6.5s-chat"
+        }
+    },
+    "required": ["groupUrls"]
+}

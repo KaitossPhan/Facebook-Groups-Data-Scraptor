@@ -1,0 +1,13 @@
+{
+    "actorSpecification": 1,
+    "name": "facebook-group-scraper",
+    "title": "Facebook Group Scraper (GS3)",
+    "description": "Scrape metadata, posts, comments, and members from Facebook groups.",
+    "version": "0.1",
+    "buildTag": "latest",
+    "meta": {
+        "templateId": "playwright-javascript"
+    },
+    "input": "./input_schema.json",
+    "dockerfile": "./Dockerfile"
+}
