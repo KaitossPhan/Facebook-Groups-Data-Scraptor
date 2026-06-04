@@ -12,6 +12,26 @@ Respond ONLY with valid JSON — no markdown, no explanation outside the JSON:
 If the post is clean, return: {"flagged":false,"categories":[],"confidence":0.95,"reason":"No violation"}`;
 
 /**
+ * Parse the model's JSON reply, tolerating ```json fences or surrounding prose —
+ * MiniMax (like most chat models) often wraps JSON in markdown despite instructions.
+ */
+function parseModelJson(content) {
+    if (!content) return null;
+    let s = String(content).trim();
+    const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) s = fence[1].trim();
+    try {
+        return JSON.parse(s);
+    } catch {
+        const brace = s.match(/\{[\s\S]*\}/); // fall back to the first {...} block
+        if (brace) {
+            try { return JSON.parse(brace[0]); } catch { /* give up below */ }
+        }
+        return null;
+    }
+}
+
+/**
  * Run MiniMax AI moderation on an array of posts.
  * Adds a `moderation` field to each post with flagged status and categories.
  * Non-blocking: failures are logged and the post is returned unchanged.
@@ -57,7 +77,11 @@ export async function moderatePosts(posts, { apiKey, model = 'abab6.5s-chat', ma
             const content = data.choices?.[0]?.message?.content;
             if (!content) return post;
 
-            const modResult = JSON.parse(content);
+            const modResult = parseModelJson(content);
+            if (!modResult) {
+                log.debug(`Moderation: unparseable response for post ${post.postId || '(no id)'}`);
+                return post;
+            }
             post.moderation = {
                 flagged: Boolean(modResult.flagged),
                 categories: Array.isArray(modResult.categories) ? modResult.categories : [],

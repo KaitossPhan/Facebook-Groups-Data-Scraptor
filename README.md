@@ -188,7 +188,7 @@ await syncGroup('https://www.facebook.com/groups/your-group/');
 
 - [x] **Auto-retry khi gặp checkpoint** — `navigateWithRetry()` trong `scraper.js`: tự động retry với exponential backoff (30 s → 60 s → 120 s). Config qua input `maxCheckpointRetries` (default 3).
 - [x] **Webhook trigger từ GS3 Dashboard** — sau mỗi group scrape (thành công hoặc lỗi), POST JSON đến `webhookUrl`. Payload gồm: `status`, `postsCount`, `flaggedPostsCount`, `error`, `actorRunId`, `scrapedAt`.
-- [x] **Diff mode** — input `diffMode: true`. Lưu timestamp của post mới nhất vào Apify KV Store sau mỗi run. Run kế tiếp chỉ trả về post mới hơn thời điểm đó.
+- [x] **Diff mode** — input `diffMode: true`. Lưu *tập post key (postId/postUrl) đã trả về* vào Apify KV Store sau mỗi run (ID-based, không phụ thuộc timestamp — FB thường không expose timestamp trong feed). Run kế tiếp chỉ trả về post chưa xuất hiện ở bất kỳ run nào trước đó. Filter chạy **trước** bước scrape comment để không tốn thời gian fetch comment cho post cũ.
 - [x] **Multi-cookie rotation** — input `fbCookiesList` (array JSON). Khi checkpoint xảy ra, `onCheckpoint()` callback tự động rotate sang cookie set kế tiếp trong pool. Hỗ trợ bất kỳ số lượng burner account.
 - [x] **AI moderation pipeline** — input `minimaxApiKey` + `minimaxModel`. Module `src/moderator.js` gọi MiniMax ChatCompletion API theo batch (3 concurrent), gắn field `moderation: { flagged, categories, confidence, reason }` vào mỗi post. Non-blocking — lỗi API không làm crash run.
 
@@ -201,3 +201,19 @@ await syncGroup('https://www.facebook.com/groups/your-group/');
 | `parser.js` | 89 | `article.closest('div[role="article"]')` luôn trả về chính article → nested articles không bao giờ bị skip | Đổi sang `article.parentElement?.closest(...)` |
 | `scraper.js` | 125 | GraphQL response listener (`page.on('response', ...)`) không bao giờ bị remove → memory leak | Dùng named handler + `page.off('response', handler)` sau scroll |
 | `scraper.js` | 130 | `graphqlPosts` array không giới hạn size → memory tăng không kiểm soát | Cap tại `maxPostsPerGroup × 20` |
+
+---
+
+## 10. Tối ưu cho Apify (đợt mới nhất)
+
+| Vấn đề | File | Fix |
+|--------|------|-----|
+| `playwright: ^1.47.0` có thể kéo bản mới hơn browser bundle trong base image → crash lúc launch | `package.json` / `Dockerfile` | Đổi sang `"playwright": "*"` để dùng đúng browser image đã cài. **Không** dùng `npm ci`. |
+| `requestHandlerTimeoutSecs: 600` bị vượt khi scrape nhiều post + comment → bị kill giữa chừng, mất nguyên group | `main.js` | Timeout động `computeHandlerTimeoutSecs()` scale theo `maxPostsPerGroup`/`scrapeComments`/`maxMembersPerGroup` (clamp 5 phút–2 giờ) |
+| Group fail hết retry → không có record + không webhook (gap thầm lặng) | `main.js` | `failedRequestHandler` push record `{error}` + gửi webhook status error |
+| Crawlee retry (mặc định 3) chồng lên `navigateWithRetry` nội bộ → re-scrape cả group nhiều lần | `main.js` | `maxRequestRetries: 1` |
+| Diff mode dựa vào timestamp mà FB hay giấu → gần như không lọc được | `main.js` / `scraper.js` | Chuyển sang **ID-based dedup** (lưu tập postId/postUrl đã thấy trong KV Store) |
+| Buffer GraphQL giữ tới `maxPosts×20` object FB đầy đủ trong RAM | `scraper.js` / `parser.js` | `collectPostMeta()` trích ngay `postId→timestamp` vào `Map`, bỏ buffer object lớn |
+| MiniMax trả JSON bọc ```json fences → `JSON.parse` throw → moderation im lặng không chạy | `moderator.js` | `parseModelJson()` strip fences + fallback trích `{...}` |
+| Dedup fallback `text.slice(0,100)` làm 2 post khác nhau cùng mở đầu bị drop | `parser.js` | Key ưu tiên `postUrl`/`postId`, fallback `author::text(200)` chỉ khi có text |
+| Console không hiển thị progress / bảng output đẹp | `main.js` / `actor.json` | `Actor.setStatusMessage()` mỗi group + `dataset_schema.json` (table view) |

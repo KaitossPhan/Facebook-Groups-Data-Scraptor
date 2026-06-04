@@ -4,6 +4,7 @@ import {
     extractPostsFromFeed,
     extractCommentsFromPost,
     extractMembersFromList,
+    collectPostMeta,
 } from './parser.js';
 
 const sleep = (min, max) => {
@@ -130,22 +131,25 @@ export async function scrapeGroup(page, groupUrl, opts) {
             return result;
         }
 
-        // Cap GraphQL array at 20× the post limit to avoid unbounded memory growth.
-        const graphqlCap = opts.maxPostsPerGroup * 20;
-        const graphqlPosts = [];
+        // Extract post timestamps from GraphQL responses incrementally into a small
+        // Map (postId -> ISO creation time). We parse each streamed line, pull just the
+        // id + time, and discard the rest — instead of buffering thousands of full
+        // (and often huge) FB response objects in memory.
+        const tsCap = opts.maxPostsPerGroup * 10;
+        const postMeta = new Map();
 
         const graphqlHandler = async (response) => {
             try {
                 const url = response.url();
                 if (!url.includes('/api/graphql/') || response.request().method() !== 'POST') return;
-                if (graphqlPosts.length >= graphqlCap) return;
+                if (postMeta.size >= tsCap) return;
                 const text = await response.text();
-                text.split('\n').forEach((line) => {
-                    if (!line.trim() || graphqlPosts.length >= graphqlCap) return;
+                for (const line of text.split('\n')) {
+                    if (!line.trim() || postMeta.size >= tsCap) continue;
                     try {
-                        graphqlPosts.push(JSON.parse(line));
+                        collectPostMeta(JSON.parse(line), postMeta);
                     } catch { /* ignore non-JSON lines */ }
-                });
+                }
             } catch { /* response may already be consumed */ }
         };
 
@@ -156,8 +160,34 @@ export async function scrapeGroup(page, groupUrl, opts) {
 
         page.off('response', graphqlHandler);
 
-        result.posts = await extractPostsFromFeed(page, graphqlPosts, opts.maxPostsPerGroup);
+        result.posts = await extractPostsFromFeed(page, postMeta, opts.maxPostsPerGroup);
         log.info(`[${slug}] Collected ${result.posts.length} posts`);
+
+        // ---------- DIFF MODE FILTER ----------
+        // Runs before comments so we never spend time fetching comments for posts
+        // that were already returned in a previous run.
+        if (opts.diffMode) {
+            const keyOf = (p) => p.postId || p.postUrl || null;
+            const seen = new Set(opts.seenKeys || []);
+            const before = result.posts.length;
+
+            // New = posts whose key wasn't seen before. Keyless posts are always kept.
+            const newPosts = result.posts.filter((p) => {
+                const k = keyOf(p);
+                return !(k && seen.has(k));
+            });
+
+            // Cumulative seen set = previously seen + every keyed post observed this run.
+            const allKeys = new Set(opts.seenKeys || []);
+            for (const p of result.posts) {
+                const k = keyOf(p);
+                if (k) allKeys.add(k);
+            }
+
+            log.info(`[${slug}] Diff mode: ${newPosts.length}/${before} posts are new (seen set: ${allKeys.size})`);
+            result.posts = newPosts;
+            result.seenKeysToSave = [...allKeys];
+        }
 
         // ---------- 3. COMMENTS ----------
         if (opts.scrapeComments && result.posts.length > 0) {
@@ -178,19 +208,6 @@ export async function scrapeGroup(page, groupUrl, opts) {
                 }
                 await sleep(2000, 5000);
             }
-        }
-
-        // ---------- DIFF MODE FILTER ----------
-        if (opts.diffMode && opts.lastSeenAt) {
-            const cutoff = new Date(opts.lastSeenAt).getTime();
-            const before = result.posts.length;
-            // Posts without timestamps are always included (conservative approach).
-            result.posts = result.posts.filter((p) => {
-                if (!p.timestamp) return true;
-                return new Date(p.timestamp).getTime() > cutoff;
-            });
-            log.info(`[${slug}] Diff mode: ${result.posts.length}/${before} posts are new since ${opts.lastSeenAt}`);
-            result.diffSince = opts.lastSeenAt;
         }
     }
 

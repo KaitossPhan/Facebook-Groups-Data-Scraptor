@@ -64,7 +64,7 @@
             "title": "Facebook cookies (JSON)",
             "type": "string",
             "description": "Cookies exported from a logged-in Facebook session. Required for private groups, members list, and to reduce rate limits on public groups. Use a burner account, NOT your main account. Format: JSON array exported from 'EditThisCookie' or 'Cookie-Editor' extension.",
-            "editor": "json",
+            "editor": "textarea",
             "isSecret": true
         },
         "proxyConfiguration": {

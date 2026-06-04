@@ -1,0 +1,32 @@
+{
+    "actorSpecification": 1,
+    "views": {
+        "overview": {
+            "title": "Groups overview",
+            "description": "One row per scraped group, with metadata and collected posts/members.",
+            "transformation": {
+                "fields": [
+                    "groupSlug",
+                    "groupUrl",
+                    "metadata",
+                    "posts",
+                    "members",
+                    "error",
+                    "scrapedAt"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "groupSlug": { "label": "Group", "format": "text" },
+                    "groupUrl": { "label": "URL", "format": "link" },
+                    "metadata": { "label": "Metadata", "format": "object" },
+                    "posts": { "label": "Posts", "format": "array" },
+                    "members": { "label": "Members", "format": "array" },
+                    "error": { "label": "Error", "format": "text" },
+                    "scrapedAt": { "label": "Scraped at", "format": "date" }
+                }
+            }
+        }
+    }
+}

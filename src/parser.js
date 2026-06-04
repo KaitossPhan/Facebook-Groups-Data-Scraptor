@@ -75,10 +75,36 @@ export async function extractMetadataFromAboutPage(page) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Combine DOM-extracted posts with GraphQL-intercepted data.
- * DOM gives us layout / what's currently visible; GraphQL gives us cleaner structured data.
+ * Walk a parsed GraphQL response and record post timestamps into `map`
+ * (numericPostId -> ISO creation time, or null when only the id is known).
+ * Called per streamed line while scrolling, so we never retain full response objects.
  */
-export async function extractPostsFromFeed(page, graphqlResponses, maxPosts) {
+export function collectPostMeta(obj, map) {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj.__typename === 'Story' || obj.creation_time || obj.post_id) {
+        const id = obj.post_id || obj.id;
+        if (id != null) {
+            const key = String(id);
+            const time = obj.creation_time
+                ? new Date(obj.creation_time * 1000).toISOString()
+                : null;
+            // A real timestamp always wins; a bare id only fills an empty slot.
+            if (time || !map.has(key)) map.set(key, time);
+        }
+    }
+    if (Array.isArray(obj)) {
+        for (const v of obj) collectPostMeta(v, map);
+    } else {
+        for (const v of Object.values(obj)) collectPostMeta(v, map);
+    }
+}
+
+/**
+ * Combine DOM-extracted posts with GraphQL-intercepted timestamps.
+ * DOM gives us layout / what's currently visible; `postMeta` (a Map of
+ * numericPostId -> ISO creation time) supplies reliable timestamps.
+ */
+export async function extractPostsFromFeed(page, postMeta, maxPosts) {
     // 1. Pull posts from DOM (simpler, always works for the basics)
     const domPosts = await page.evaluate(() => {
         const posts = [];
@@ -152,60 +178,35 @@ export async function extractPostsFromFeed(page, graphqlResponses, maxPosts) {
         return posts;
     });
 
-    // 2. Enrich with GraphQL data when possible
-    // GraphQL responses contain structured post data with reliable IDs and timestamps.
-    // We walk the response tree looking for known FB post shapes.
-    const graphqlPosts = [];
-    const seenIds = new Set();
-
-    const walk = (obj) => {
-        if (!obj || typeof obj !== 'object') return;
-        // FB post nodes typically have these fields together
-        if (obj.__typename === 'Story' || obj.creation_time || obj.post_id) {
-            const id = obj.post_id || obj.id;
-            if (id && !seenIds.has(id)) {
-                seenIds.add(id);
-                graphqlPosts.push({
-                    postId: id,
-                    creationTime: obj.creation_time
-                        ? new Date(obj.creation_time * 1000).toISOString()
-                        : null,
-                    rawType: obj.__typename,
-                });
-            }
-        }
-        if (Array.isArray(obj)) {
-            obj.forEach(walk);
-        } else {
-            Object.values(obj).forEach(walk);
-        }
-    };
-    graphqlResponses.forEach(walk);
-
-    // Merge: attach GraphQL timestamps to DOM posts when post IDs match in the URL
+    // 2. Enrich with GraphQL data.
+    // Pull the numeric post id out of each permalink and attach it (always — diff-mode
+    // dedup relies on a stable key) plus the timestamp when GraphQL provided one.
     domPosts.forEach((post) => {
         if (!post.postUrl) return;
-        const m = post.postUrl.match(/\/posts\/(\d+)|\/permalink\/(\d+)/);
-        const postId = m?.[1] || m?.[2];
+        const m = post.postUrl.match(/\/posts\/(\d+)|\/permalink\/(\d+)|multi_permalinks=(\d+)|story_fbid=(\d+)/);
+        const postId = m?.[1] || m?.[2] || m?.[3] || m?.[4];
         if (postId) {
-            const gqlMatch = graphqlPosts.find((g) => String(g.postId) === postId);
-            if (gqlMatch) {
-                post.postId = postId;
-                post.timestamp = gqlMatch.creationTime;
-            }
+            post.postId = postId;
+            if (postMeta && postMeta.has(postId)) post.timestamp = postMeta.get(postId);
         }
     });
 
-    // Dedupe by postUrl
+    // Dedupe. Prefer a stable key (URL / id); only fall back to author+text when there
+    // IS text, so two different posts sharing an opening line aren't merged into one.
     const dedup = [];
-    const seenUrls = new Set();
+    const seen = new Set();
     for (const post of domPosts) {
-        const key = post.postUrl || post.text?.slice(0, 100);
-        if (key && !seenUrls.has(key)) {
-            seenUrls.add(key);
+        const key = post.postUrl
+            || post.postId
+            || (post.text ? `${post.authorName || ''}::${post.text.slice(0, 200)}` : null);
+        if (!key) {
+            // No stable key (e.g. image-only post) — include rather than drop.
             dedup.push(post);
-            if (dedup.length >= maxPosts) break;
+        } else if (!seen.has(key)) {
+            seen.add(key);
+            dedup.push(post);
         }
+        if (dedup.length >= maxPosts) break;
     }
 
     return dedup;
